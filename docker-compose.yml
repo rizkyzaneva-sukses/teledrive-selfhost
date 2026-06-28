@@ -1,0 +1,13 @@
+services:
+  teledrive:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - teledrive-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  teledrive-data:

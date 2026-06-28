@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TeleDrive Selfhost</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">Telegram-backed storage</p>
+          <h1>TeleDrive Selfhost</h1>
+        </div>
+        <div class="status" id="status">Checking</div>
+      </section>
+
+      <section class="workspace">
+        <form class="upload" id="uploadForm">
+          <label class="token">
+            Admin token
+            <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Opsional jika ADMIN_TOKEN kosong">
+          </label>
+
+          <label class="token">
+            Folder
+            <input id="folderInput" type="text" autocomplete="off" placeholder="Contoh: invoice/juni">
+          </label>
+
+          <label class="dropzone" for="fileInput">
+            <input id="fileInput" type="file" required>
+            <span id="fileLabel">Pilih file untuk upload</span>
+          </label>
+
+          <button type="submit">Upload</button>
+          <p class="message" id="message"></p>
+        </form>
+
+        <section class="files">
+          <div class="files-head">
+            <h2>Files</h2>
+            <button class="secondary" id="refreshButton" type="button">Refresh</button>
+          </div>
+          <div class="filters">
+            <input id="searchInput" type="search" placeholder="Search file">
+            <input id="folderFilterInput" type="search" placeholder="Filter folder">
+          </div>
+          <div class="file-list" id="fileList"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

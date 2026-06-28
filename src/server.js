@@ -1,69 +1,34 @@
-require('dotenv').config();
-
+const crypto = require('crypto');
 const fs = require('fs/promises');
-const createReadStream = require('fs').createReadStream;
+const { createReadStream } = require('fs');
+const http = require('http');
 const path = require('path');
-const express = require('express');
-const multer = require('multer');
-const axios = require('axios');
-const FormData = require('form-data');
-const { v4: uuidv4 } = require('uuid');
-
-const app = express();
+const { Readable } = require('stream');
 
 const PORT = Number(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const STORAGE_CHAT_ID = process.env.STORAGE_CHAT_ID;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 50);
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const DB_PATH = path.join(DATA_DIR, 'files.json');
 const TELEGRAM_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : '';
 
-const upload = multer({
-  dest: UPLOAD_DIR,
-  limits: {
-    fileSize: MAX_UPLOAD_MB * 1024 * 1024
-  }
-});
-
-app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
-
-function requireConfig() {
-  if (!BOT_TOKEN || !STORAGE_CHAT_ID) {
-    const error = new Error('BOT_TOKEN and STORAGE_CHAT_ID must be configured');
-    error.statusCode = 500;
-    throw error;
-  }
-}
-
-function requireAdmin(req, res, next) {
-  if (!ADMIN_TOKEN) {
-    next();
-    return;
-  }
-
-  const providedToken =
-    req.header('x-admin-token') ||
-    req.query.token ||
-    req.header('authorization')?.replace(/^Bearer\s+/i, '');
-
-  if (providedToken !== ADMIN_TOKEN) {
-    res.status(401).json({
-      success: false,
-      error: 'Unauthorized'
-    });
-    return;
-  }
-
-  next();
-}
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml'
+};
 
 async function ensureStorage() {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
 
   try {
     await fs.access(DB_PATH);
@@ -74,12 +39,116 @@ async function ensureStorage() {
 
 async function readFiles() {
   await ensureStorage();
-  const raw = await fs.readFile(DB_PATH, 'utf8');
-  return JSON.parse(raw);
+  return JSON.parse(await fs.readFile(DB_PATH, 'utf8'));
 }
 
 async function writeFiles(files) {
   await fs.writeFile(DB_PATH, `${JSON.stringify(files, null, 2)}\n`, 'utf8');
+}
+
+function sendJson(res, statusCode, body) {
+  res.writeHead(statusCode, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store'
+  });
+  res.end(JSON.stringify(body));
+}
+
+function getAdminToken(req, url) {
+  const authHeader = req.headers.authorization || '';
+  return (
+    req.headers['x-admin-token'] ||
+    url.searchParams.get('token') ||
+    authHeader.replace(/^Bearer\s+/i, '')
+  );
+}
+
+function isAuthorized(req, url) {
+  return !ADMIN_TOKEN || getAdminToken(req, url) === ADMIN_TOKEN;
+}
+
+function requireConfig() {
+  if (!BOT_TOKEN || !STORAGE_CHAT_ID) {
+    const error = new Error('BOT_TOKEN and STORAGE_CHAT_ID must be configured');
+    error.statusCode = 500;
+    throw error;
+  }
+}
+
+async function readRequestBody(req, maxBytes) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      const error = new Error(`File is larger than ${MAX_UPLOAD_MB}MB`);
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+function parseMultipart(buffer, contentType) {
+  const boundaryMatch = /boundary=([^;]+)/i.exec(contentType || '');
+  if (!boundaryMatch) {
+    const error = new Error('Missing multipart boundary');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const boundary = `--${boundaryMatch[1].replace(/^"|"$/g, '')}`;
+  const raw = buffer.toString('latin1');
+  const fields = {};
+  let file = null;
+  let searchFrom = 0;
+
+  while (true) {
+    const partBoundary = raw.indexOf(boundary, searchFrom);
+    if (partBoundary === -1) break;
+
+    const nextBoundary = raw.indexOf(boundary, partBoundary + boundary.length);
+    if (nextBoundary === -1) break;
+
+    let partStart = partBoundary + boundary.length;
+    if (raw.slice(partStart, partStart + 2) === '--') break;
+    if (raw.slice(partStart, partStart + 2) === '\r\n') partStart += 2;
+
+    const headerEnd = raw.indexOf('\r\n\r\n', partStart);
+    if (headerEnd === -1 || headerEnd > nextBoundary) {
+      searchFrom = nextBoundary;
+      continue;
+    }
+
+    const headerRaw = raw.slice(partStart, headerEnd);
+    const contentStart = headerEnd + 4;
+    const contentEnd = raw.slice(nextBoundary - 2, nextBoundary) === '\r\n'
+      ? nextBoundary - 2
+      : nextBoundary;
+    const content = buffer.subarray(contentStart, contentEnd);
+    const disposition = /content-disposition:\s*form-data;([^\r\n]+)/i.exec(headerRaw)?.[1] || '';
+    const name = /name="([^"]+)"/i.exec(disposition)?.[1];
+    const filename = /filename="([^"]*)"/i.exec(disposition)?.[1];
+    const mimeType = /content-type:\s*([^\r\n]+)/i.exec(headerRaw)?.[1]?.trim() || 'application/octet-stream';
+
+    if (name && filename !== undefined) {
+      file = {
+        originalName: path.basename(filename) || 'upload.bin',
+        mimeType,
+        size: content.length,
+        buffer: content
+      };
+    } else if (name) {
+      fields[name] = content.toString('utf8');
+    }
+
+    searchFrom = nextBoundary;
+  }
+
+  return { fields, file };
 }
 
 async function uploadToTelegram(file) {
@@ -87,201 +156,194 @@ async function uploadToTelegram(file) {
 
   const form = new FormData();
   form.append('chat_id', STORAGE_CHAT_ID);
-  form.append('caption', file.originalname);
-  form.append('document', createReadStream(file.path), {
-    filename: file.originalname,
-    contentType: file.mimetype
-  });
+  form.append('caption', file.originalName);
+  form.append('document', new Blob([file.buffer], { type: file.mimeType }), file.originalName);
 
-  const response = await axios.post(`${TELEGRAM_API}/sendDocument`, form, {
-    headers: form.getHeaders(),
-    maxBodyLength: Infinity,
-    maxContentLength: Infinity,
-    timeout: 120000
+  const response = await fetch(`${TELEGRAM_API}/sendDocument`, {
+    method: 'POST',
+    body: form
   });
+  const body = await response.json();
 
-  if (!response.data.ok) {
-    throw new Error(response.data.description || 'Telegram upload failed');
+  if (!response.ok || !body.ok) {
+    throw new Error(body.description || 'Telegram upload failed');
   }
 
-  const document = response.data.result.document;
-
   return {
-    telegramFileId: document.file_id,
-    telegramFileUniqueId: document.file_unique_id,
-    messageId: response.data.result.message_id
+    telegramFileId: body.result.document.file_id,
+    telegramFileUniqueId: body.result.document.file_unique_id,
+    messageId: body.result.message_id
   };
 }
 
 async function getTelegramFileUrl(fileId) {
   requireConfig();
 
-  const response = await axios.get(`${TELEGRAM_API}/getFile`, {
-    params: { file_id: fileId },
-    timeout: 30000
-  });
+  const response = await fetch(`${TELEGRAM_API}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  const body = await response.json();
 
-  if (!response.data.ok) {
-    throw new Error(response.data.description || 'Telegram getFile failed');
+  if (!response.ok || !body.ok) {
+    throw new Error(body.description || 'Telegram getFile failed');
   }
 
-  return `https://api.telegram.org/file/bot${BOT_TOKEN}/${response.data.result.file_path}`;
+  return `https://api.telegram.org/file/bot${BOT_TOKEN}/${body.result.file_path}`;
 }
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      configured: Boolean(BOT_TOKEN && STORAGE_CHAT_ID),
-      maxUploadMb: MAX_UPLOAD_MB
-    }
-  });
-});
+async function serveStatic(req, res, url) {
+  const requestedPath = url.pathname === '/' ? '/index.html' : url.pathname;
+  const safePath = path.normalize(decodeURIComponent(requestedPath)).replace(/^(\.\.[/\\])+/, '');
+  const filePath = path.join(PUBLIC_DIR, safePath);
 
-app.get('/api/files', requireAdmin, async (req, res, next) => {
-  try {
-    const files = await readFiles();
-    const search = String(req.query.search || '').trim().toLowerCase();
-    const folder = String(req.query.folder || '').trim().toLowerCase();
-    const filteredFiles = files.filter((file) => {
-      const matchesSearch = search
-        ? file.originalName.toLowerCase().includes(search)
-        : true;
-      const matchesFolder = folder
-        ? String(file.folder || '').toLowerCase() === folder
-        : true;
-
-      return matchesSearch && matchesFolder;
-    });
-
-    res.json({
-      success: true,
-      data: filteredFiles.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post('/api/files', requireAdmin, upload.single('file'), async (req, res, next) => {
-  if (!req.file) {
-    res.status(400).json({
-      success: false,
-      error: 'File is required'
-    });
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    sendJson(res, 403, { success: false, error: 'Forbidden' });
     return;
   }
 
   try {
-    const telegramFile = await uploadToTelegram(req.file);
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) throw new Error('Not a file');
+
+    res.writeHead(200, {
+      'content-type': MIME_TYPES[path.extname(filePath)] || 'application/octet-stream',
+      'content-length': stat.size
+    });
+    createReadStream(filePath).pipe(res);
+  } catch {
+    sendJson(res, 404, { success: false, error: 'Not found' });
+  }
+}
+
+async function handleApi(req, res, url) {
+  if (!isAuthorized(req, url) && url.pathname !== '/api/health') {
+    sendJson(res, 401, { success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/health') {
+    sendJson(res, 200, {
+      success: true,
+      data: {
+        configured: Boolean(BOT_TOKEN && STORAGE_CHAT_ID),
+        maxUploadMb: MAX_UPLOAD_MB
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/files') {
+    const files = await readFiles();
+    const search = String(url.searchParams.get('search') || '').trim().toLowerCase();
+    const folder = String(url.searchParams.get('folder') || '').trim().toLowerCase();
+    const filteredFiles = files.filter((file) => {
+      const matchesSearch = search ? file.originalName.toLowerCase().includes(search) : true;
+      const matchesFolder = folder ? String(file.folder || '').toLowerCase() === folder : true;
+      return matchesSearch && matchesFolder;
+    });
+
+    sendJson(res, 200, {
+      success: true,
+      data: filteredFiles.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/files') {
+    const body = await readRequestBody(req, MAX_UPLOAD_BYTES + 1024 * 1024);
+    const { fields, file } = parseMultipart(body, req.headers['content-type']);
+
+    if (!file || !file.size) {
+      sendJson(res, 400, { success: false, error: 'File is required' });
+      return;
+    }
+
+    const telegramFile = await uploadToTelegram(file);
     const files = await readFiles();
     const storedFile = {
-      id: uuidv4(),
-      originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      folder: String(req.body.folder || '').trim(),
+      id: crypto.randomUUID(),
+      originalName: file.originalName,
+      mimeType: file.mimeType,
+      size: file.size,
+      folder: String(fields.folder || '').trim(),
       ...telegramFile,
       createdAt: new Date().toISOString()
     };
 
     await writeFiles([...files, storedFile]);
-
-    res.status(201).json({
-      success: true,
-      data: storedFile
-    });
-  } catch (error) {
-    next(error);
-  } finally {
-    await fs.unlink(req.file.path).catch(() => {});
+    sendJson(res, 201, { success: true, data: storedFile });
+    return;
   }
-});
 
-app.get('/api/files/:id/download', requireAdmin, async (req, res, next) => {
-  try {
+  const downloadMatch = /^\/api\/files\/([^/]+)\/download$/.exec(url.pathname);
+  if (req.method === 'GET' && downloadMatch) {
     const files = await readFiles();
-    const file = files.find((item) => item.id === req.params.id);
+    const file = files.find((item) => item.id === downloadMatch[1]);
 
     if (!file) {
-      res.status(404).json({
-        success: false,
-        error: 'File not found'
-      });
+      sendJson(res, 404, { success: false, error: 'File not found' });
       return;
     }
 
-    const url = await getTelegramFileUrl(file.telegramFileId);
-    const response = await axios.get(url, {
-      responseType: 'stream',
-      timeout: 120000
+    const telegramUrl = await getTelegramFileUrl(file.telegramFileId);
+    const response = await fetch(telegramUrl);
+
+    if (!response.ok) {
+      throw new Error(`Telegram download failed: HTTP ${response.status}`);
+    }
+
+    res.writeHead(200, {
+      'content-type': file.mimeType || 'application/octet-stream',
+      'content-disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`
     });
-
-    res.setHeader('content-type', file.mimeType || 'application/octet-stream');
-    res.setHeader('content-length', response.headers['content-length'] || file.size);
-    res.setHeader(
-      'content-disposition',
-      `attachment; filename="${encodeURIComponent(file.originalName)}"`
-    );
-
-    response.data.pipe(res);
-  } catch (error) {
-    next(error);
+    Readable.fromWeb(response.body).pipe(res);
+    return;
   }
-});
 
-app.delete('/api/files/:id', requireAdmin, async (req, res, next) => {
-  try {
+  const deleteMatch = /^\/api\/files\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && deleteMatch) {
     const files = await readFiles();
-    const nextFiles = files.filter((item) => item.id !== req.params.id);
+    const nextFiles = files.filter((item) => item.id !== deleteMatch[1]);
 
     if (nextFiles.length === files.length) {
-      res.status(404).json({
-        success: false,
-        error: 'File not found'
-      });
+      sendJson(res, 404, { success: false, error: 'File not found' });
       return;
     }
 
     await writeFiles(nextFiles);
-
-    res.json({
-      success: true,
-      data: { id: req.params.id }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.use((error, req, res, next) => {
-  if (res.headersSent) {
-    next(error);
+    sendJson(res, 200, { success: true, data: { id: deleteMatch[1] } });
     return;
   }
 
-  const statusCode = error.statusCode || (error.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
-  const message =
-    error.code === 'LIMIT_FILE_SIZE'
-      ? `File is larger than ${MAX_UPLOAD_MB}MB`
-      : error.message || 'Internal server error';
+  sendJson(res, 404, { success: false, error: 'Not found' });
+}
 
-  console.error(JSON.stringify({
-    level: 'error',
-    message,
-    path: req.path,
-    method: req.method
-  }));
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-  res.status(statusCode).json({
-    success: false,
-    error: message
-  });
+  try {
+    if (url.pathname.startsWith('/api/')) {
+      await handleApi(req, res, url);
+      return;
+    }
+
+    await serveStatic(req, res, url);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'error',
+      message: error.message,
+      path: url.pathname,
+      method: req.method
+    }));
+
+    sendJson(res, error.statusCode || 500, {
+      success: false,
+      error: error.message || 'Internal server error'
+    });
+  }
 });
 
 ensureStorage()
   .then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`TeleDrive Selfhost running on http://localhost:${PORT}`);
     });
   })

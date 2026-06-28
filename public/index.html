@@ -17,36 +17,45 @@
       </section>
 
       <section class="workspace">
-        <form class="upload" id="uploadForm">
+        <aside class="sidebar">
           <label class="token">
             Admin token
             <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Opsional jika ADMIN_TOKEN kosong">
           </label>
+          <button class="folder-root" id="rootButton" type="button">My Drive</button>
+          <nav class="folder-tree" id="folderTree"></nav>
+        </aside>
 
-          <label class="token">
-            Folder
-            <input id="folderInput" type="text" autocomplete="off" placeholder="Contoh: invoice/juni">
-          </label>
+        <section class="main-panel">
+          <form class="upload" id="uploadForm">
+            <label class="token">
+              Upload folder
+              <input id="folderInput" type="text" autocomplete="off" placeholder="Contoh: invoice/2026/juni">
+            </label>
 
-          <label class="dropzone" for="fileInput">
-            <input id="fileInput" type="file" required>
-            <span id="fileLabel">Pilih file untuk upload</span>
-          </label>
+            <label class="dropzone" for="fileInput">
+              <input id="fileInput" type="file" required>
+              <span id="fileLabel">Pilih file untuk upload</span>
+            </label>
 
-          <button type="submit">Upload</button>
-          <p class="message" id="message"></p>
-        </form>
+            <button type="submit">Upload</button>
+            <p class="message" id="message"></p>
+          </form>
 
-        <section class="files">
-          <div class="files-head">
-            <h2>Files</h2>
-            <button class="secondary" id="refreshButton" type="button">Refresh</button>
-          </div>
-          <div class="filters">
-            <input id="searchInput" type="search" placeholder="Search file">
-            <input id="folderFilterInput" type="search" placeholder="Filter folder">
-          </div>
-          <div class="file-list" id="fileList"></div>
+          <section class="files">
+            <div class="files-head">
+              <div>
+                <div class="breadcrumb" id="breadcrumb"></div>
+                <h2 id="currentTitle">My Drive</h2>
+              </div>
+              <button class="secondary" id="refreshButton" type="button">Refresh</button>
+            </div>
+            <div class="filters">
+              <input id="searchInput" type="search" placeholder="Search semua file">
+            </div>
+            <div class="folder-list" id="folderList"></div>
+            <div class="file-list" id="fileList"></div>
+          </section>
         </section>
       </section>
     </main>

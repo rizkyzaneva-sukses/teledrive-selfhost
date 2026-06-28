@@ -71,17 +71,28 @@ h2 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 20px;
   align-items: start;
 }
 
+.sidebar,
 .upload,
 .files {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   padding: 18px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 16px;
+}
+
+.main-panel {
+  display: grid;
+  gap: 20px;
 }
 
 .token {
@@ -155,6 +166,44 @@ button.secondary:hover {
   border-color: #b8c6ce;
 }
 
+.folder-root,
+.tree-item {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font-weight: 700;
+}
+
+.folder-root.active,
+.tree-item.active {
+  border-color: #b9d8d2;
+  background: #eaf4f2;
+  color: var(--accent-dark);
+}
+
+.folder-root:hover,
+.tree-item:hover {
+  border-color: #d7e5e1;
+  background: #f4faf8;
+  color: var(--accent-dark);
+}
+
+.tree-item {
+  margin-top: 6px;
+  padding-left: calc(12px + var(--depth) * 14px);
+  font-size: 14px;
+}
+
+.tree-empty {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .message {
   min-height: 22px;
   margin-top: 12px;
@@ -176,9 +225,73 @@ button.secondary:hover {
 
 .filters {
   display: grid;
-  grid-template-columns: 1fr 180px;
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-bottom: 14px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.breadcrumb button {
+  width: auto;
+  background: transparent;
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0;
+}
+
+.breadcrumb span {
+  color: #9aa7ae;
+}
+
+.breadcrumb button:hover {
+  background: transparent;
+  color: var(--accent);
+}
+
+.folder-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.folder-card {
+  display: grid;
+  gap: 6px;
+  min-height: 92px;
+  border: 1px solid var(--line);
+  background: #fbfcfd;
+  color: var(--ink);
+  text-align: left;
+  align-content: start;
+}
+
+.folder-card:hover {
+  border-color: #b9d8d2;
+  background: #f4faf8;
+}
+
+.folder-icon {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.folder-card small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .file-list {
@@ -209,13 +322,20 @@ button.secondary:hover {
 
 .file-folder {
   display: inline-block;
+  width: auto;
   margin-top: 8px;
+  border: 0;
   border-radius: 999px;
   background: #eaf4f2;
   color: var(--accent-dark);
   font-size: 12px;
   font-weight: 700;
   padding: 4px 8px;
+}
+
+.file-folder:hover {
+  background: #dcefeb;
+  color: var(--accent-dark);
 }
 
 .file-actions {
@@ -254,6 +374,10 @@ button.secondary:hover {
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
   }
 
   .file-item {

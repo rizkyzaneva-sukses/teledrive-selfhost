@@ -61,6 +61,43 @@ body {
   margin-bottom: 24px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font-weight: 700;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.guide-link:hover {
+  border-color: #b9d8d2;
+  background: #f4faf8;
+  color: var(--accent-dark);
+}
+
+.guide-link.primary {
+  width: max-content;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.guide-link.primary:hover {
+  background: var(--accent-dark);
+  color: white;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--accent-dark);
@@ -78,6 +115,82 @@ p {
 h1 {
   font-size: clamp(28px, 5vw, 44px);
   line-height: 1.05;
+}
+
+.guide-shell {
+  width: min(980px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0 56px;
+}
+
+.guide-hero {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 24px;
+}
+
+.guide-hero p:not(.eyebrow) {
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.guide-section {
+  padding: 22px 0;
+}
+
+.guide-section h2 {
+  margin-bottom: 12px;
+}
+
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.guide-grid article,
+.guide-list,
+.guide-steps {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.guide-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.guide-grid p,
+.guide-list p,
+.guide-steps li {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.guide-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.guide-list code,
+.guide-steps code {
+  border-radius: 6px;
+  background: #eef2f4;
+  color: var(--ink);
+  padding: 2px 5px;
+}
+
+.guide-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 14px 14px 34px;
 }
 
 h2 {
@@ -765,6 +878,12 @@ button.danger-outline:hover {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar-actions {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .workspace {

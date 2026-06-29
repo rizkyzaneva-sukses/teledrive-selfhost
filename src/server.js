@@ -14,6 +14,7 @@ const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const DB_PATH = path.join(DATA_DIR, 'files.json');
+const FOLDERS_PATH = path.join(DATA_DIR, 'folders.json');
 const TELEGRAM_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : '';
 
 const MIME_TYPES = {
@@ -35,6 +36,12 @@ async function ensureStorage() {
   } catch {
     await fs.writeFile(DB_PATH, '[]\n', 'utf8');
   }
+
+  try {
+    await fs.access(FOLDERS_PATH);
+  } catch {
+    await fs.writeFile(FOLDERS_PATH, '[]\n', 'utf8');
+  }
 }
 
 async function readFiles() {
@@ -44,6 +51,24 @@ async function readFiles() {
 
 async function writeFiles(files) {
   await fs.writeFile(DB_PATH, `${JSON.stringify(files, null, 2)}\n`, 'utf8');
+}
+
+async function readFolders() {
+  await ensureStorage();
+  return JSON.parse(await fs.readFile(FOLDERS_PATH, 'utf8'));
+}
+
+async function writeFolders(folders) {
+  const uniqueFolders = [...new Set(folders.map(normalizeFolder).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  await fs.writeFile(FOLDERS_PATH, `${JSON.stringify(uniqueFolders, null, 2)}\n`, 'utf8');
+}
+
+function normalizeFolder(value) {
+  return String(value || '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join('/');
 }
 
 function sendJson(res, statusCode, body) {
@@ -233,10 +258,10 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/files') {
     const files = await readFiles();
     const search = String(url.searchParams.get('search') || '').trim().toLowerCase();
-    const folder = String(url.searchParams.get('folder') || '').trim().toLowerCase();
+    const folder = normalizeFolder(url.searchParams.get('folder') || '').toLowerCase();
     const filteredFiles = files.filter((file) => {
       const matchesSearch = search ? file.originalName.toLowerCase().includes(search) : true;
-      const matchesFolder = folder ? String(file.folder || '').toLowerCase() === folder : true;
+      const matchesFolder = folder ? normalizeFolder(file.folder).toLowerCase() === folder : true;
       return matchesSearch && matchesFolder;
     });
 
@@ -244,6 +269,50 @@ async function handleApi(req, res, url) {
       success: true,
       data: filteredFiles.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/folders') {
+    const [files, storedFolders] = await Promise.all([readFiles(), readFolders()]);
+    const folderSet = new Set(storedFolders.map(normalizeFolder).filter(Boolean));
+
+    for (const file of files) {
+      const folder = normalizeFolder(file.folder);
+      if (!folder) continue;
+
+      const parts = folder.split('/');
+      for (let index = 1; index <= parts.length; index += 1) {
+        folderSet.add(parts.slice(0, index).join('/'));
+      }
+    }
+
+    sendJson(res, 200, {
+      success: true,
+      data: [...folderSet].sort((a, b) => a.localeCompare(b))
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/folders') {
+    const body = await readRequestBody(req, 1024 * 32);
+    let payload;
+
+    try {
+      payload = JSON.parse(body.toString('utf8'));
+    } catch {
+      sendJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+
+    const folder = normalizeFolder(payload.folder);
+    if (!folder) {
+      sendJson(res, 400, { success: false, error: 'Folder name is required' });
+      return;
+    }
+
+    const folders = await readFolders();
+    await writeFolders([...folders, folder]);
+    sendJson(res, 201, { success: true, data: { folder } });
     return;
   }
 
@@ -263,10 +332,15 @@ async function handleApi(req, res, url) {
       originalName: file.originalName,
       mimeType: file.mimeType,
       size: file.size,
-      folder: String(fields.folder || '').trim(),
+      folder: normalizeFolder(fields.folder),
       ...telegramFile,
       createdAt: new Date().toISOString()
     };
+
+    if (storedFile.folder) {
+      const folders = await readFolders();
+      await writeFolders([...folders, storedFile.folder]);
+    }
 
     await writeFiles([...files, storedFile]);
     sendJson(res, 201, { success: true, data: storedFile });

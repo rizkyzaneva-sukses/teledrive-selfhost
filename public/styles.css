@@ -77,6 +77,7 @@ h2 {
 }
 
 .sidebar,
+.drive-toolbar,
 .upload,
 .files {
   border: 1px solid var(--line);
@@ -155,6 +156,15 @@ button:hover {
   background: var(--accent-dark);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button:disabled:hover {
+  background: inherit;
+}
+
 button.secondary {
   width: auto;
   border: 1px solid var(--line);
@@ -164,6 +174,12 @@ button.secondary {
 
 button.secondary:hover {
   border-color: #b8c6ce;
+}
+
+button.secondary:disabled:hover {
+  border-color: var(--line);
+  background: white;
+  color: var(--ink);
 }
 
 .folder-root,
@@ -215,12 +231,37 @@ button.secondary:hover {
   color: var(--danger);
 }
 
-.files-head {
+.drive-toolbar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.destination {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.files-head {
+  display: block;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.new-folder {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
 }
 
 .filters {
@@ -268,6 +309,7 @@ button.secondary:hover {
 .folder-card {
   display: grid;
   gap: 6px;
+  width: 100%;
   min-height: 92px;
   border: 1px solid var(--line);
   background: #fbfcfd;
@@ -382,6 +424,25 @@ button.secondary:hover {
 
   .file-item {
     grid-template-columns: 1fr;
+  }
+
+  .drive-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .toolbar-actions,
+  .new-folder {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-actions {
+    display: grid;
+  }
+
+  .toolbar-actions button,
+  .new-folder button {
+    width: 100%;
   }
 
   .filters {

@@ -1,9 +1,10 @@
 const tokenInput = document.querySelector('#tokenInput');
-const folderInput = document.querySelector('#folderInput');
+const newFolderInput = document.querySelector('#newFolderInput');
 const searchInput = document.querySelector('#searchInput');
 const fileInput = document.querySelector('#fileInput');
 const fileLabel = document.querySelector('#fileLabel');
 const uploadForm = document.querySelector('#uploadForm');
+const folderForm = document.querySelector('#folderForm');
 const message = document.querySelector('#message');
 const statusEl = document.querySelector('#status');
 const folderTree = document.querySelector('#folderTree');
@@ -13,12 +14,15 @@ const refreshButton = document.querySelector('#refreshButton');
 const rootButton = document.querySelector('#rootButton');
 const breadcrumb = document.querySelector('#breadcrumb');
 const currentTitle = document.querySelector('#currentTitle');
+const destinationText = document.querySelector('#destinationText');
+const uploadButton = document.querySelector('#uploadButton');
+const upButton = document.querySelector('#upButton');
 
 let allFiles = [];
+let allFolders = [];
 let currentFolder = localStorage.getItem('currentFolder') || '';
 
 tokenInput.value = localStorage.getItem('adminToken') || '';
-folderInput.value = currentFolder;
 
 function getHeaders() {
   const token = tokenInput.value.trim();
@@ -68,7 +72,11 @@ async function checkHealth() {
 async function loadFiles() {
   try {
     localStorage.setItem('adminToken', tokenInput.value.trim());
-    allFiles = await fetchJson('/api/files', { headers: getHeaders() });
+    const headers = getHeaders();
+    [allFiles, allFolders] = await Promise.all([
+      fetchJson('/api/files', { headers }),
+      fetchJson('/api/folders', { headers })
+    ]);
     renderDrive();
   } catch (error) {
     folderTree.innerHTML = '';
@@ -78,17 +86,20 @@ async function loadFiles() {
 }
 
 function renderDrive() {
-  const folders = buildFolderSet(allFiles);
+  const folders = buildFolderSet(allFiles, allFolders);
   const search = searchInput.value.trim().toLowerCase();
 
-  folderInput.value = currentFolder;
   rootButton.classList.toggle('active', currentFolder === '');
+  destinationText.textContent = `Upload masuk ke ${currentFolder ? currentFolder : 'My Drive'}`;
+  uploadButton.textContent = `Upload ke ${currentFolder ? lastSegment(currentFolder) : 'My Drive'}`;
+  upButton.disabled = currentFolder === '';
   renderBreadcrumb();
   renderFolderTree(folders);
 
   if (search) {
     currentTitle.textContent = 'Search Results';
-    folderList.innerHTML = '';
+    const folderMatches = folders.filter((folder) => folder.toLowerCase().includes(search));
+    renderFolderCards(folderMatches);
     const matches = allFiles.filter((file) => file.originalName.toLowerCase().includes(search));
     renderFiles(matches, `Tidak ada file untuk "${searchInput.value.trim()}".`);
     return;
@@ -102,8 +113,18 @@ function renderDrive() {
   renderFiles(visibleFiles, 'Folder ini masih kosong.');
 }
 
-function buildFolderSet(files) {
+function buildFolderSet(files, storedFolders) {
   const folders = new Set();
+
+  for (const storedFolder of storedFolders) {
+    const folder = normalizeFolder(storedFolder);
+    if (!folder) continue;
+
+    const parts = folder.split('/');
+    for (let index = 1; index <= parts.length; index += 1) {
+      folders.add(parts.slice(0, index).join('/'));
+    }
+  }
 
   for (const file of files) {
     const folder = normalizeFolder(file.folder);
@@ -196,7 +217,14 @@ function renderFiles(files, emptyMessage) {
 function setCurrentFolder(folder) {
   currentFolder = normalizeFolder(folder);
   localStorage.setItem('currentFolder', currentFolder);
+  searchInput.value = '';
   renderDrive();
+}
+
+function parentFolder(folder) {
+  const parts = normalizeFolder(folder).split('/').filter(Boolean);
+  parts.pop();
+  return parts.join('/');
 }
 
 function lastSegment(folder) {
@@ -232,7 +260,7 @@ uploadForm.addEventListener('submit', async (event) => {
     setMessage('Uploading...');
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('folder', normalizeFolder(folderInput.value || currentFolder));
+    formData.append('folder', currentFolder);
 
     await fetchJson('/api/files', {
       method: 'POST',
@@ -241,10 +269,36 @@ uploadForm.addEventListener('submit', async (event) => {
     });
 
     uploadForm.reset();
-    folderInput.value = currentFolder;
     fileLabel.textContent = 'Pilih file untuk upload';
     setMessage('Upload selesai.');
     await loadFiles();
+  } catch (error) {
+    setMessage(error.message, true);
+  }
+});
+
+folderForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const folderName = normalizeFolder(newFolderInput.value);
+  if (!folderName) return;
+
+  const folder = normalizeFolder([currentFolder, folderName].filter(Boolean).join('/'));
+
+  try {
+    await fetchJson('/api/folders', {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({ folder })
+    });
+
+    newFolderInput.value = '';
+    setMessage(`Folder "${lastSegment(folder)}" dibuat.`);
+    await loadFiles();
+    setCurrentFolder(folder);
   } catch (error) {
     setMessage(error.message, true);
   }
@@ -275,11 +329,9 @@ document.addEventListener('click', async (event) => {
 
 refreshButton.addEventListener('click', loadFiles);
 rootButton.addEventListener('click', () => setCurrentFolder(''));
+upButton.addEventListener('click', () => setCurrentFolder(parentFolder(currentFolder)));
 tokenInput.addEventListener('change', loadFiles);
 searchInput.addEventListener('input', renderDrive);
-folderInput.addEventListener('change', () => {
-  folderInput.value = normalizeFolder(folderInput.value);
-});
 
 checkHealth();
 loadFiles();

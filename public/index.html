@@ -27,31 +27,37 @@
         </aside>
 
         <section class="main-panel">
-          <form class="upload" id="uploadForm">
-            <label class="token">
-              Upload folder
-              <input id="folderInput" type="text" autocomplete="off" placeholder="Contoh: invoice/2026/juni">
-            </label>
+          <section class="drive-toolbar">
+            <div>
+              <div class="breadcrumb" id="breadcrumb"></div>
+              <h2 id="currentTitle">My Drive</h2>
+              <p class="destination" id="destinationText">Upload masuk ke My Drive</p>
+            </div>
+            <div class="toolbar-actions">
+              <button class="secondary" id="upButton" type="button">Up</button>
+              <button class="secondary" id="refreshButton" type="button">Refresh</button>
+            </div>
+          </section>
 
+          <form class="upload" id="uploadForm">
             <label class="dropzone" for="fileInput">
               <input id="fileInput" type="file" required>
               <span id="fileLabel">Pilih file untuk upload</span>
             </label>
 
-            <button type="submit">Upload</button>
+            <button type="submit" id="uploadButton">Upload ke My Drive</button>
             <p class="message" id="message"></p>
           </form>
 
           <section class="files">
             <div class="files-head">
-              <div>
-                <div class="breadcrumb" id="breadcrumb"></div>
-                <h2 id="currentTitle">My Drive</h2>
-              </div>
-              <button class="secondary" id="refreshButton" type="button">Refresh</button>
+              <form class="new-folder" id="folderForm">
+                <input id="newFolderInput" type="text" autocomplete="off" placeholder="Nama folder baru">
+                <button class="secondary" type="submit">New Folder</button>
+              </form>
             </div>
             <div class="filters">
-              <input id="searchInput" type="search" placeholder="Search semua file">
+              <input id="searchInput" type="search" placeholder="Search file dan folder">
             </div>
             <div class="folder-list" id="folderList"></div>
             <div class="file-list" id="fileList"></div>

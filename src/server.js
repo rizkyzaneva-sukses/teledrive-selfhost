@@ -15,6 +15,8 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const DB_PATH = path.join(DATA_DIR, 'files.json');
 const FOLDERS_PATH = path.join(DATA_DIR, 'folders.json');
+const TRASH_PATH = path.join(DATA_DIR, 'trash.json');
+const ACTIVITY_PATH = path.join(DATA_DIR, 'activity.json');
 const TELEGRAM_API = BOT_TOKEN ? `https://api.telegram.org/bot${BOT_TOKEN}` : '';
 
 const MIME_TYPES = {
@@ -42,6 +44,18 @@ async function ensureStorage() {
   } catch {
     await fs.writeFile(FOLDERS_PATH, '[]\n', 'utf8');
   }
+
+  try {
+    await fs.access(TRASH_PATH);
+  } catch {
+    await fs.writeFile(TRASH_PATH, '[]\n', 'utf8');
+  }
+
+  try {
+    await fs.access(ACTIVITY_PATH);
+  } catch {
+    await fs.writeFile(ACTIVITY_PATH, '[]\n', 'utf8');
+  }
 }
 
 async function readFiles() {
@@ -63,12 +77,64 @@ async function writeFolders(folders) {
   await fs.writeFile(FOLDERS_PATH, `${JSON.stringify(uniqueFolders, null, 2)}\n`, 'utf8');
 }
 
+async function readTrash() {
+  await ensureStorage();
+  return JSON.parse(await fs.readFile(TRASH_PATH, 'utf8'));
+}
+
+async function writeTrash(files) {
+  await fs.writeFile(TRASH_PATH, `${JSON.stringify(files, null, 2)}\n`, 'utf8');
+}
+
+async function readActivity() {
+  await ensureStorage();
+  return JSON.parse(await fs.readFile(ACTIVITY_PATH, 'utf8'));
+}
+
+async function writeActivity(items) {
+  await fs.writeFile(ACTIVITY_PATH, `${JSON.stringify(items.slice(0, 300), null, 2)}\n`, 'utf8');
+}
+
+async function logActivity(action, details = {}) {
+  const items = await readActivity();
+  const entry = {
+    id: crypto.randomUUID(),
+    action,
+    details,
+    createdAt: new Date().toISOString()
+  };
+  await writeActivity([entry, ...items]);
+}
+
 function normalizeFolder(value) {
   return String(value || '')
     .split('/')
     .map((part) => part.trim())
     .filter(Boolean)
     .join('/');
+}
+
+function normalizeTags(value) {
+  const input = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(input.map((tag) => String(tag).trim()).filter(Boolean))].slice(0, 12);
+}
+
+function folderMatches(folder, target) {
+  const normalizedFolder = normalizeFolder(folder);
+  const normalizedTarget = normalizeFolder(target);
+  return normalizedFolder === normalizedTarget || normalizedFolder.startsWith(`${normalizedTarget}/`);
+}
+
+function replaceFolderPrefix(folder, from, to) {
+  const normalizedFolder = normalizeFolder(folder);
+  const normalizedFrom = normalizeFolder(from);
+  const normalizedTo = normalizeFolder(to);
+
+  if (!normalizedFrom) return normalizedFolder;
+  if (normalizedFolder === normalizedFrom) return normalizedTo;
+  if (!normalizedFolder.startsWith(`${normalizedFrom}/`)) return normalizedFolder;
+
+  return normalizeFolder([normalizedTo, normalizedFolder.slice(normalizedFrom.length + 1)].filter(Boolean).join('/'));
 }
 
 function sendJson(res, statusCode, body) {
@@ -293,6 +359,24 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/trash') {
+    const trash = await readTrash();
+    sendJson(res, 200, {
+      success: true,
+      data: trash.sort((a, b) => new Date(b.deletedAt || b.createdAt) - new Date(a.deletedAt || a.createdAt))
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/activity') {
+    const activity = await readActivity();
+    sendJson(res, 200, {
+      success: true,
+      data: activity.slice(0, 80)
+    });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/folders') {
     const [files, storedFolders] = await Promise.all([readFiles(), readFolders()]);
     const folderSet = new Set(storedFolders.map(normalizeFolder).filter(Boolean));
@@ -311,6 +395,63 @@ async function handleApi(req, res, url) {
       success: true,
       data: [...folderSet].sort((a, b) => a.localeCompare(b))
     });
+    return;
+  }
+
+  if ((req.method === 'PATCH' || req.method === 'DELETE') && url.pathname === '/api/folders') {
+    const body = req.method === 'PATCH' ? await readRequestBody(req, 1024 * 32) : null;
+    let payload = {};
+
+    if (body) {
+      try {
+        payload = JSON.parse(body.toString('utf8'));
+      } catch {
+        sendJson(res, 400, { success: false, error: 'Invalid JSON' });
+        return;
+      }
+    }
+
+    const target = normalizeFolder(payload.folder || url.searchParams.get('folder'));
+    if (!target) {
+      sendJson(res, 400, { success: false, error: 'Folder is required' });
+      return;
+    }
+
+    const [files, storedFolders] = await Promise.all([readFiles(), readFolders()]);
+
+    if (req.method === 'DELETE') {
+      const hasChildren = storedFolders.some((folder) => folderMatches(folder, target) && normalizeFolder(folder) !== target);
+      const hasFiles = files.some((file) => normalizeFolder(file.folder) === target || normalizeFolder(file.folder).startsWith(`${target}/`));
+
+      if (hasChildren || hasFiles) {
+        sendJson(res, 409, { success: false, error: 'Folder must be empty before delete' });
+        return;
+      }
+
+      await writeFolders(storedFolders.filter((folder) => normalizeFolder(folder) !== target));
+      await logActivity('folder_deleted', { folder: target });
+      sendJson(res, 200, { success: true, data: { folder: target } });
+      return;
+    }
+
+    const nextFolder = normalizeFolder(payload.nextFolder);
+    if (!nextFolder) {
+      sendJson(res, 400, { success: false, error: 'New folder name is required' });
+      return;
+    }
+
+    const nextFiles = files.map((file) => (
+      folderMatches(file.folder, target)
+        ? { ...file, folder: replaceFolderPrefix(file.folder, target, nextFolder), updatedAt: new Date().toISOString() }
+        : file
+    ));
+    const nextFolders = storedFolders.map((folder) => (
+      folderMatches(folder, target) ? replaceFolderPrefix(folder, target, nextFolder) : folder
+    ));
+
+    await Promise.all([writeFiles(nextFiles), writeFolders([...nextFolders, nextFolder])]);
+    await logActivity('folder_renamed', { from: target, to: nextFolder });
+    sendJson(res, 200, { success: true, data: { folder: nextFolder } });
     return;
   }
 
@@ -333,6 +474,7 @@ async function handleApi(req, res, url) {
 
     const folders = await readFolders();
     await writeFolders([...folders, folder]);
+    await logActivity('folder_created', { folder });
     sendJson(res, 201, { success: true, data: { folder } });
     return;
   }
@@ -354,6 +496,7 @@ async function handleApi(req, res, url) {
       mimeType: file.mimeType,
       size: file.size,
       folder: normalizeFolder(fields.folder),
+      tags: normalizeTags(fields.tags),
       ...telegramFile,
       createdAt: new Date().toISOString()
     };
@@ -364,6 +507,12 @@ async function handleApi(req, res, url) {
     }
 
     await writeFiles([...files, storedFile]);
+    await logActivity('file_uploaded', {
+      fileId: storedFile.id,
+      name: storedFile.originalName,
+      folder: storedFile.folder,
+      size: storedFile.size
+    });
     sendJson(res, 201, { success: true, data: storedFile });
     return;
   }
@@ -382,9 +531,73 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  const patchFileMatch = /^\/api\/files\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'PATCH' && patchFileMatch) {
+    const body = await readRequestBody(req, 1024 * 32);
+    let payload;
+
+    try {
+      payload = JSON.parse(body.toString('utf8'));
+    } catch {
+      sendJson(res, 400, { success: false, error: 'Invalid JSON' });
+      return;
+    }
+
+    const files = await readFiles();
+    const index = files.findIndex((item) => item.id === patchFileMatch[1]);
+
+    if (index === -1) {
+      sendJson(res, 404, { success: false, error: 'File not found' });
+      return;
+    }
+
+    const previous = files[index];
+    const next = {
+      ...previous,
+      updatedAt: new Date().toISOString()
+    };
+
+    if (payload.name !== undefined) {
+      const name = path.basename(String(payload.name || '').trim());
+      if (!name) {
+        sendJson(res, 400, { success: false, error: 'File name is required' });
+        return;
+      }
+      next.originalName = name;
+    }
+
+    if (payload.folder !== undefined) {
+      next.folder = normalizeFolder(payload.folder);
+    }
+
+    if (payload.tags !== undefined) {
+      next.tags = normalizeTags(payload.tags);
+    }
+
+    files[index] = next;
+
+    if (next.folder) {
+      const folders = await readFolders();
+      await writeFolders([...folders, next.folder]);
+    }
+
+    await writeFiles(files);
+    await logActivity('file_updated', {
+      fileId: next.id,
+      fromName: previous.originalName,
+      toName: next.originalName,
+      fromFolder: previous.folder,
+      toFolder: next.folder,
+      tags: next.tags || []
+    });
+    sendJson(res, 200, { success: true, data: next });
+    return;
+  }
+
   const deleteMatch = /^\/api\/files\/([^/]+)$/.exec(url.pathname);
   if (req.method === 'DELETE' && deleteMatch) {
     const files = await readFiles();
+    const file = files.find((item) => item.id === deleteMatch[1]);
     const nextFiles = files.filter((item) => item.id !== deleteMatch[1]);
 
     if (nextFiles.length === files.length) {
@@ -392,8 +605,51 @@ async function handleApi(req, res, url) {
       return;
     }
 
+    const trash = await readTrash();
     await writeFiles(nextFiles);
+    await writeTrash([{ ...file, deletedAt: new Date().toISOString() }, ...trash.filter((item) => item.id !== file.id)]);
+    await logActivity('file_trashed', { fileId: file.id, name: file.originalName, folder: file.folder });
     sendJson(res, 200, { success: true, data: { id: deleteMatch[1] } });
+    return;
+  }
+
+  const restoreMatch = /^\/api\/trash\/([^/]+)\/restore$/.exec(url.pathname);
+  if (req.method === 'POST' && restoreMatch) {
+    const [files, trash] = await Promise.all([readFiles(), readTrash()]);
+    const file = trash.find((item) => item.id === restoreMatch[1]);
+
+    if (!file) {
+      sendJson(res, 404, { success: false, error: 'Trash item not found' });
+      return;
+    }
+
+    const restoredFile = { ...file };
+    delete restoredFile.deletedAt;
+    restoredFile.restoredAt = new Date().toISOString();
+
+    await Promise.all([
+      writeFiles([restoredFile, ...files.filter((item) => item.id !== restoredFile.id)]),
+      writeTrash(trash.filter((item) => item.id !== restoredFile.id))
+    ]);
+    await logActivity('file_restored', { fileId: restoredFile.id, name: restoredFile.originalName, folder: restoredFile.folder });
+    sendJson(res, 200, { success: true, data: restoredFile });
+    return;
+  }
+
+  const trashDeleteMatch = /^\/api\/trash\/([^/]+)$/.exec(url.pathname);
+  if (req.method === 'DELETE' && trashDeleteMatch) {
+    const trash = await readTrash();
+    const file = trash.find((item) => item.id === trashDeleteMatch[1]);
+    const nextTrash = trash.filter((item) => item.id !== trashDeleteMatch[1]);
+
+    if (!file) {
+      sendJson(res, 404, { success: false, error: 'Trash item not found' });
+      return;
+    }
+
+    await writeTrash(nextTrash);
+    await logActivity('trash_deleted', { fileId: file.id, name: file.originalName });
+    sendJson(res, 200, { success: true, data: { id: file.id } });
     return;
   }
 

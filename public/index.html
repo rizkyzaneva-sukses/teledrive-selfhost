@@ -7,6 +7,19 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <section class="login-screen" id="loginScreen">
+      <form class="login-panel" id="loginForm">
+        <p class="eyebrow">Telegram-backed storage</p>
+        <h1>TeleDrive Selfhost</h1>
+        <label class="token">
+          Admin token
+          <input id="loginTokenInput" type="password" autocomplete="current-password" placeholder="Masukkan admin token">
+        </label>
+        <button type="submit">Masuk</button>
+        <p class="message" id="loginMessage"></p>
+      </form>
+    </section>
+
     <main class="shell">
       <section class="topbar">
         <div>
@@ -23,6 +36,12 @@
             <input id="tokenInput" type="password" autocomplete="current-password" placeholder="Opsional jika ADMIN_TOKEN kosong">
           </label>
           <button class="folder-root" id="rootButton" type="button">My Drive</button>
+          <div class="mode-nav" id="modeNav">
+            <button class="active" type="button" data-mode="drive">Folders</button>
+            <button type="button" data-mode="recent">Recent</button>
+            <button type="button" data-mode="trash">Trash</button>
+            <button type="button" data-mode="activity">Activity</button>
+          </div>
           <nav class="folder-tree" id="folderTree"></nav>
         </aside>
 
@@ -35,15 +54,18 @@
             </div>
             <div class="toolbar-actions">
               <button class="secondary" id="upButton" type="button">Up</button>
+              <button class="secondary" id="renameFolderButton" type="button">Rename Folder</button>
+              <button class="secondary danger-outline" id="deleteFolderButton" type="button">Delete Folder</button>
               <button class="secondary" id="refreshButton" type="button">Refresh</button>
             </div>
           </section>
 
           <form class="upload" id="uploadForm">
             <label class="dropzone" for="fileInput">
-              <input id="fileInput" type="file" required>
-              <span id="fileLabel">Pilih file untuk upload</span>
+              <input id="fileInput" type="file" multiple required>
+              <span id="fileLabel">Pilih satu atau banyak file untuk upload</span>
             </label>
+            <input id="uploadTagsInput" type="text" autocomplete="off" placeholder="Tag upload, pisahkan koma. Contoh: produk,konten,penting">
 
             <button type="submit" id="uploadButton">Upload ke My Drive</button>
             <p class="message" id="message"></p>
@@ -58,6 +80,15 @@
             </div>
             <div class="filters">
               <input id="searchInput" type="search" placeholder="Search file dan folder">
+              <select id="sortSelect" aria-label="Sort file">
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="name-asc">Name A-Z</option>
+                <option value="name-desc">Name Z-A</option>
+                <option value="size-desc">Largest</option>
+                <option value="size-asc">Smallest</option>
+                <option value="type">Type</option>
+              </select>
               <div class="type-filters" id="typeFilters" aria-label="Filter tipe file">
                 <button class="active" type="button" data-type-filter="all">All</button>
                 <button type="button" data-type-filter="image">Images</button>
@@ -65,10 +96,15 @@
                 <button type="button" data-type-filter="document">Docs</button>
                 <button type="button" data-type-filter="other">Other</button>
               </div>
+              <div class="view-toggle" id="viewToggle" aria-label="Mode tampilan">
+                <button class="active" type="button" data-view="list">List</button>
+                <button type="button" data-view="gallery">Gallery</button>
+              </div>
             </div>
             <div class="summary" id="summaryText">0 file</div>
             <div class="folder-list" id="folderList"></div>
             <div class="file-list" id="fileList"></div>
+            <div class="activity-list" id="activityList"></div>
           </section>
         </section>
       </section>

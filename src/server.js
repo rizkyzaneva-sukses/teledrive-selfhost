@@ -417,7 +417,7 @@ const server = http.createServer(async (req, res) => {
 
 ensureStorage()
   .then(() => {
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`TeleDrive Selfhost running on http://localhost:${PORT}`);
     });
   })

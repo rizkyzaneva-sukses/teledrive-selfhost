@@ -214,6 +214,27 @@ async function getTelegramFileUrl(fileId) {
   return `https://api.telegram.org/file/bot${BOT_TOKEN}/${body.result.file_path}`;
 }
 
+function contentDisposition(disposition, filename) {
+  const safeName = encodeURIComponent(filename || 'file');
+  return `${disposition}; filename="${safeName}"; filename*=UTF-8''${safeName}`;
+}
+
+async function streamTelegramFile(res, file, disposition) {
+  const telegramUrl = await getTelegramFileUrl(file.telegramFileId);
+  const response = await fetch(telegramUrl);
+
+  if (!response.ok) {
+    throw new Error(`Telegram download failed: HTTP ${response.status}`);
+  }
+
+  res.writeHead(200, {
+    'content-type': file.mimeType || 'application/octet-stream',
+    'content-disposition': contentDisposition(disposition, file.originalName),
+    'cache-control': 'private, max-age=300'
+  });
+  Readable.fromWeb(response.body).pipe(res);
+}
+
 async function serveStatic(req, res, url) {
   const requestedPath = url.pathname === '/' ? '/index.html' : url.pathname;
   const safePath = path.normalize(decodeURIComponent(requestedPath)).replace(/^(\.\.[/\\])+/, '');
@@ -347,28 +368,17 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  const downloadMatch = /^\/api\/files\/([^/]+)\/download$/.exec(url.pathname);
-  if (req.method === 'GET' && downloadMatch) {
+  const fileStreamMatch = /^\/api\/files\/([^/]+)\/(download|view)$/.exec(url.pathname);
+  if (req.method === 'GET' && fileStreamMatch) {
     const files = await readFiles();
-    const file = files.find((item) => item.id === downloadMatch[1]);
+    const file = files.find((item) => item.id === fileStreamMatch[1]);
 
     if (!file) {
       sendJson(res, 404, { success: false, error: 'File not found' });
       return;
     }
 
-    const telegramUrl = await getTelegramFileUrl(file.telegramFileId);
-    const response = await fetch(telegramUrl);
-
-    if (!response.ok) {
-      throw new Error(`Telegram download failed: HTTP ${response.status}`);
-    }
-
-    res.writeHead(200, {
-      'content-type': file.mimeType || 'application/octet-stream',
-      'content-disposition': `attachment; filename="${encodeURIComponent(file.originalName)}"`
-    });
-    Readable.fromWeb(response.body).pipe(res);
+    await streamTelegramFile(res, file, fileStreamMatch[2] === 'view' ? 'inline' : 'attachment');
     return;
   }
 

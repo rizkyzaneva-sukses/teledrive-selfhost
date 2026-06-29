@@ -1,6 +1,7 @@
 const tokenInput = document.querySelector('#tokenInput');
 const newFolderInput = document.querySelector('#newFolderInput');
 const searchInput = document.querySelector('#searchInput');
+const typeFilters = document.querySelector('#typeFilters');
 const fileInput = document.querySelector('#fileInput');
 const fileLabel = document.querySelector('#fileLabel');
 const uploadForm = document.querySelector('#uploadForm');
@@ -17,10 +18,18 @@ const currentTitle = document.querySelector('#currentTitle');
 const destinationText = document.querySelector('#destinationText');
 const uploadButton = document.querySelector('#uploadButton');
 const upButton = document.querySelector('#upButton');
+const summaryText = document.querySelector('#summaryText');
+const previewModal = document.querySelector('#previewModal');
+const previewTitle = document.querySelector('#previewTitle');
+const previewMeta = document.querySelector('#previewMeta');
+const previewBody = document.querySelector('#previewBody');
+const previewOpen = document.querySelector('#previewOpen');
+const previewDownload = document.querySelector('#previewDownload');
 
 let allFiles = [];
 let allFolders = [];
 let currentFolder = localStorage.getItem('currentFolder') || '';
+let activeType = localStorage.getItem('activeType') || 'all';
 
 tokenInput.value = localStorage.getItem('adminToken') || '';
 
@@ -88,8 +97,10 @@ async function loadFiles() {
 function renderDrive() {
   const folders = buildFolderSet(allFiles, allFolders);
   const search = searchInput.value.trim().toLowerCase();
+  const typeFilteredFiles = filterFilesByType(allFiles, activeType);
 
   rootButton.classList.toggle('active', currentFolder === '');
+  renderTypeFilters();
   destinationText.textContent = `Upload masuk ke ${currentFolder ? currentFolder : 'My Drive'}`;
   uploadButton.textContent = `Upload ke ${currentFolder ? lastSegment(currentFolder) : 'My Drive'}`;
   upButton.disabled = currentFolder === '';
@@ -100,7 +111,10 @@ function renderDrive() {
     currentTitle.textContent = 'Search Results';
     const folderMatches = folders.filter((folder) => folder.toLowerCase().includes(search));
     renderFolderCards(folderMatches);
-    const matches = allFiles.filter((file) => file.originalName.toLowerCase().includes(search));
+    const matches = typeFilteredFiles.filter((file) => {
+      const folder = normalizeFolder(file.folder).toLowerCase();
+      return file.originalName.toLowerCase().includes(search) || folder.includes(search);
+    });
     renderFiles(matches, `Tidak ada file untuk "${searchInput.value.trim()}".`);
     return;
   }
@@ -109,7 +123,7 @@ function renderDrive() {
   const childFolders = getChildFolders(folders, currentFolder);
   renderFolderCards(childFolders);
 
-  const visibleFiles = allFiles.filter((file) => normalizeFolder(file.folder) === currentFolder);
+  const visibleFiles = typeFilteredFiles.filter((file) => normalizeFolder(file.folder) === currentFolder);
   renderFiles(visibleFiles, 'Folder ini masih kosong.');
 }
 
@@ -193,7 +207,15 @@ function renderFolderCards(folders) {
   `).join('');
 }
 
+function renderTypeFilters() {
+  for (const button of typeFilters.querySelectorAll('[data-type-filter]')) {
+    button.classList.toggle('active', button.dataset.typeFilter === activeType);
+  }
+}
+
 function renderFiles(files, emptyMessage) {
+  renderSummary(files);
+
   if (!files.length) {
     fileList.innerHTML = `<div class="empty">${escapeHtml(emptyMessage)}</div>`;
     return;
@@ -201,17 +223,74 @@ function renderFiles(files, emptyMessage) {
 
   fileList.innerHTML = files.map((file) => `
     <article class="file-item">
-      <div>
+      <div class="file-main">
+        <div class="file-kind">${escapeHtml(fileTypeLabel(file))}</div>
         <div class="file-name">${escapeHtml(file.originalName)}</div>
         <div class="file-meta">${formatBytes(file.size)} - ${new Date(file.createdAt).toLocaleString('id-ID')}</div>
         ${file.folder ? `<button class="file-folder" type="button" data-folder="${escapeHtml(normalizeFolder(file.folder))}">${escapeHtml(normalizeFolder(file.folder))}</button>` : ''}
       </div>
       <div class="file-actions">
+        <button class="secondary" type="button" data-preview="${file.id}">Preview</button>
+        <a href="/api/files/${file.id}/view${tokenQuery()}" target="_blank" rel="noreferrer">Open</a>
         <a href="/api/files/${file.id}/download${tokenQuery()}" target="_blank" rel="noreferrer">Download</a>
         <button type="button" data-delete="${file.id}">Delete</button>
       </div>
     </article>
   `).join('');
+}
+
+function renderSummary(files) {
+  const totalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  const folderLabel = currentFolder ? lastSegment(currentFolder) : 'My Drive';
+  const typeNames = {
+    all: 'semua tipe',
+    image: 'Images',
+    video: 'Videos',
+    document: 'Documents',
+    other: 'Other'
+  };
+  const typeLabel = typeNames[activeType] || 'semua tipe';
+  summaryText.textContent = `${files.length} file - ${formatBytes(totalSize)} - ${folderLabel} - ${typeLabel}`;
+}
+
+function getFileType(file) {
+  const mime = String(file.mimeType || '').toLowerCase();
+  const name = String(file.originalName || '').toLowerCase();
+
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (
+    mime.includes('pdf') ||
+    mime.includes('document') ||
+    mime.includes('spreadsheet') ||
+    mime.includes('presentation') ||
+    /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv)$/i.test(name)
+  ) {
+    return 'document';
+  }
+
+  return 'other';
+}
+
+function fileTypeLabel(file) {
+  const type = getFileType(file);
+  const labels = {
+    image: 'Image',
+    video: 'Video',
+    audio: 'Audio',
+    document: 'Document',
+    other: 'Other'
+  };
+  return labels[type] || 'File';
+}
+
+function filterFilesByType(files, type) {
+  if (type === 'all') return files;
+  if (type === 'other') {
+    return files.filter((file) => !['image', 'video', 'audio', 'document'].includes(getFileType(file)));
+  }
+  return files.filter((file) => getFileType(file) === type);
 }
 
 function setCurrentFolder(folder) {
@@ -234,6 +313,50 @@ function lastSegment(folder) {
 function tokenQuery() {
   const token = encodeURIComponent(tokenInput.value.trim());
   return token ? `?token=${token}` : '';
+}
+
+function viewUrl(file) {
+  return `/api/files/${file.id}/view${tokenQuery()}`;
+}
+
+function downloadUrl(file) {
+  return `/api/files/${file.id}/download${tokenQuery()}`;
+}
+
+function openPreview(file) {
+  const source = viewUrl(file);
+  const type = getFileType(file);
+
+  previewTitle.textContent = file.originalName;
+  previewMeta.textContent = `${fileTypeLabel(file)} - ${formatBytes(file.size)} - ${file.folder ? normalizeFolder(file.folder) : 'My Drive'}`;
+  previewOpen.href = source;
+  previewDownload.href = downloadUrl(file);
+
+  if (type === 'image') {
+    previewBody.innerHTML = `<img src="${source}" alt="${escapeHtml(file.originalName)}">`;
+  } else if (type === 'video') {
+    previewBody.innerHTML = `<video src="${source}" controls playsinline></video>`;
+  } else if (type === 'audio') {
+    previewBody.innerHTML = `<audio src="${source}" controls></audio>`;
+  } else if (String(file.mimeType || '').toLowerCase().includes('pdf') || /\.pdf$/i.test(file.originalName)) {
+    previewBody.innerHTML = `<iframe src="${source}" title="${escapeHtml(file.originalName)}"></iframe>`;
+  } else {
+    previewBody.innerHTML = `
+      <div class="preview-empty">
+        <strong>Preview belum tersedia untuk tipe file ini.</strong>
+        <span>Pakai Open tab atau Download untuk membuka file.</span>
+      </div>
+    `;
+  }
+
+  previewModal.classList.add('open');
+  previewModal.setAttribute('aria-hidden', 'false');
+}
+
+function closePreview() {
+  previewModal.classList.remove('open');
+  previewModal.setAttribute('aria-hidden', 'true');
+  previewBody.innerHTML = '';
 }
 
 function escapeHtml(value) {
@@ -305,9 +428,21 @@ folderForm.addEventListener('submit', async (event) => {
 });
 
 document.addEventListener('click', async (event) => {
+  if (event.target.closest('[data-preview-close]')) {
+    closePreview();
+    return;
+  }
+
   const folder = event.target.closest('[data-folder]')?.dataset.folder;
   if (folder !== undefined) {
     setCurrentFolder(folder);
+    return;
+  }
+
+  const previewId = event.target.closest('[data-preview]')?.dataset.preview;
+  if (previewId) {
+    const file = allFiles.find((item) => item.id === previewId);
+    if (file) openPreview(file);
     return;
   }
 
@@ -332,6 +467,16 @@ rootButton.addEventListener('click', () => setCurrentFolder(''));
 upButton.addEventListener('click', () => setCurrentFolder(parentFolder(currentFolder)));
 tokenInput.addEventListener('change', loadFiles);
 searchInput.addEventListener('input', renderDrive);
+typeFilters.addEventListener('click', (event) => {
+  const filter = event.target.closest('[data-type-filter]')?.dataset.typeFilter;
+  if (!filter) return;
+  activeType = filter;
+  localStorage.setItem('activeType', activeType);
+  renderDrive();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closePreview();
+});
 
 checkHealth();
 loadFiles();

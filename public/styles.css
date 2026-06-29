@@ -271,6 +271,34 @@ button.secondary:disabled:hover {
   margin-bottom: 14px;
 }
 
+.type-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.type-filters button {
+  width: auto;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 9px 11px;
+}
+
+.type-filters button.active,
+.type-filters button:hover {
+  border-color: #b9d8d2;
+  background: #eaf4f2;
+  color: var(--accent-dark);
+}
+
+.summary {
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -351,6 +379,22 @@ button.secondary:disabled:hover {
   padding: 12px;
 }
 
+.file-main {
+  min-width: 0;
+}
+
+.file-kind {
+  display: inline-block;
+  margin-bottom: 6px;
+  border-radius: 999px;
+  background: #eef2f4;
+  color: #52616b;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 4px 7px;
+  text-transform: uppercase;
+}
+
 .file-name {
   overflow-wrap: anywhere;
   font-weight: 700;
@@ -382,6 +426,8 @@ button.secondary:disabled:hover {
 
 .file-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -400,12 +446,132 @@ button.secondary:disabled:hover {
   background: var(--danger);
 }
 
+.file-actions button.secondary {
+  background: white;
+  color: var(--ink);
+}
+
 .empty {
   border: 1px dashed var(--line);
   border-radius: 8px;
   color: var(--muted);
   padding: 24px;
   text-align: center;
+}
+
+.preview-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.preview-modal.open {
+  display: block;
+}
+
+.preview-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(12 18 22 / 58%);
+}
+
+.preview-panel {
+  position: absolute;
+  inset: 28px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgb(12 18 22 / 28%);
+}
+
+.preview-head,
+.preview-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 16px;
+}
+
+.preview-head h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.preview-head p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.preview-body {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: auto;
+  background: #f7f9fa;
+  padding: 16px;
+}
+
+.preview-body img,
+.preview-body video {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+.preview-body audio {
+  width: min(640px, 100%);
+}
+
+.preview-body iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+  border: 0;
+  border-radius: 8px;
+  background: white;
+}
+
+.preview-empty {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.preview-empty strong {
+  color: var(--ink);
+}
+
+.preview-foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.preview-foot a {
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.preview-foot a:first-child {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
 }
 
 @media (max-width: 760px) {
@@ -424,6 +590,18 @@ button.secondary:disabled:hover {
 
   .file-item {
     grid-template-columns: 1fr;
+  }
+
+  .file-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    justify-content: stretch;
+  }
+
+  .file-actions a,
+  .file-actions button {
+    text-align: center;
+    width: 100%;
   }
 
   .drive-toolbar {
@@ -447,5 +625,25 @@ button.secondary:disabled:hover {
 
   .filters {
     grid-template-columns: 1fr;
+  }
+
+  .preview-panel {
+    inset: 10px;
+  }
+
+  .preview-head,
+  .preview-foot {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preview-head button,
+  .preview-foot a {
+    width: 100%;
+    text-align: center;
+  }
+
+  .preview-body iframe {
+    min-height: 430px;
   }
 }
